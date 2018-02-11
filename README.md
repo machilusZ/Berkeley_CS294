@@ -1,2 +1,2 @@
-# Stanford_CS294
+# Berkeley_CS294
 Deep Reinforcement Learning
