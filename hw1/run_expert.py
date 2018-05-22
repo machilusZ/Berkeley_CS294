@@ -3,8 +3,7 @@
 """
 Code to load an expert policy and generate roll-out data for behavioral cloning.
 Example usage:
-    python run_expert.py experts/Humanoid-v1.pkl Humanoid-v1 --render \
-            --num_rollouts 20
+    python3 run_expert.py experts/Humanoid-v2.pkl Humanoid-v2 --render  --num_rollouts 20
 
 Author of this script and included expert policies: Jonathan Ho (hoj@openai.com)
 """
@@ -33,8 +32,8 @@ def main():
 
     with tf.Session():
         tf_util.initialize()
-
         import gym
+
         env = gym.make(args.envname)
         max_steps = args.max_timesteps or env.spec.timestep_limit
 
@@ -67,6 +66,7 @@ def main():
 
         expert_data = {'observations': np.array(observations),
                        'actions': np.array(actions)}
+    pickle.dump(expert_data, open(str(args.envname) + '.pkl', 'wb'))
 
 if __name__ == '__main__':
     main()
