@@ -129,6 +129,7 @@ def train_PG(exp_name='',
         sy_ac_na = tf.placeholder(shape=[None, ac_dim], name="ac", dtype=tf.float32) 
 
     # Define a placeholder for advantages
+    #this should be gap between Q and V, not sure why set as None
     sy_adv_n = tf.placeholder(
         shape=[None,], name='adv', dtype=tf.float32
     )
@@ -176,16 +177,22 @@ def train_PG(exp_name='',
     if discrete:
         # YOUR_CODE_HERE
         sy_logits_na = build_mlp(sy_ob_no,ac_dim,'discrete')
+        #Producing samples stochastically from the policy distribution. for the discrete case
         sy_sampled_ac = tf.reshape(tf.multinomial(sy_logits_na, 1), (-1,))
+        # Computing the log probability of a set of actions that were actually taken, according to the policy.
         sy_logprob_n = -tf.nn.sparse_softmax_cross_entropy_with_logits(
             labels=sy_ac_na, logits=sy_logits_na)
     else:
         # YOUR_CODE_HERE
         sy_mean = build_mlp(sy_ob_no, ac_dim, "continuous", n_layers, size)
-        sy_logstd = tf.get_variable("std", [ac_dim], dtype=tf.float32) # logstd should just be a trainable variable, not a network output.
+        # logstd should just be a trainable variable, not a network output.
+        sy_logstd = tf.get_variable("std", [ac_dim], dtype=tf.float32)
+        #Sample action via reparametrizing with sy_mean and sy_logstd as a normal distribution where mu = sy_mean, stddev= e^sy_logstd
         sy_sampled_ac = tf.random_normal(shape=tf.shape(sy_mean), mean=sy_mean, stddev=tf.exp(sy_logstd))
+        #Calculate log prob
+        # Hint: Use the log probability under a multivariate gaussian.
         sy_logprob_n = tf.contrib.distributions.MultivariateNormalDiag(
-            loc=sy_mean, scale_diag=tf.exp(sy_logstd)).log_prob(sy_ac_na)  # Hint: Use the log probability under a multivariate gaussian.
+            loc=sy_mean, scale_diag=tf.exp(sy_logstd)).log_prob(sy_ac_na)
 
 
 

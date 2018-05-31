@@ -91,19 +91,19 @@ def learn(env,
 
     # set up placeholders
     # placeholder for current observation (or state)
-    obs_t_ph              = tf.placeholder(tf.uint8, [None] + list(input_shape))
+    obs_t_ph = tf.placeholder(tf.uint8, [None] + list(input_shape))
     # placeholder for current action
-    act_t_ph              = tf.placeholder(tf.int32,   [None])
+    act_t_ph = tf.placeholder(tf.int32,   [None])
     # placeholder for current reward
-    rew_t_ph              = tf.placeholder(tf.float32, [None])
+    rew_t_ph  = tf.placeholder(tf.float32, [None])
     # placeholder for next observation (or state)
-    obs_tp1_ph            = tf.placeholder(tf.uint8, [None] + list(input_shape))
+    obs_tp1_ph = tf.placeholder(tf.uint8, [None] + list(input_shape))
     # placeholder for end of episode mask
     # this value is 1 if the next state corresponds to the end of an episode,
     # in which case there is no Q-value at the next state; at the end of an
     # episode, only the current state reward contributes to the target, not the
     # next state Q-value (i.e. target is just rew_t_ph, not rew_t_ph + gamma * q_tp1)
-    done_mask_ph          = tf.placeholder(tf.float32, [None])
+    done_mask_ph = tf.placeholder(tf.float32, [None])
 
     # casting to float on GPU ensures lower data transfer times.
     obs_t_float   = tf.cast(obs_t_ph,   tf.float32) / 255.0
@@ -128,6 +128,24 @@ def learn(env,
     ######
     
     # YOUR CODE HERE
+    q_values = tf.gather_nd(
+        q_func(obs_t_float, num_actions, scope="q_func"),
+        tf.stack([tf.range(batch_size), act_t_ph], axis=1)
+    )
+    tp1_q_values = tf.reduce_max(
+        q_func(obs_tp1_float, num_actions, scope="tar_q_func"),
+        axis=1
+    )
+    tar_q_values = (rew_t_ph + gamma * tp1_q_values) * \
+        tf.cast(done_mask_ph < 1, tf.float32) + (rew_t_ph) * \
+        tf.cast(done_mask_ph >= 1, tf.float32)
+
+    total_error = tf.reduce_mean((tar_q_values - q_values) ** 2)
+    q_func_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="q_func")
+    target_q_func_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="tar_q_func")
+    greedy_q_values = q_func(obs_t_float, num_actions, scope="q_func", reuse=True)
+
+
 
     ######
 
@@ -195,6 +213,23 @@ def learn(env,
         #####
         
         # YOUR CODE HERE
+        idx = replay_buffer.store_frame(last_obs)
+        q_input = replay_buffer.encode_recent_observation()
+
+        if not model_initialized or np.random.rand() <= exploration.value(t):
+            action = np.random.randint(num_actions)
+        else:
+            q_values = session.run(greedy_q_values, feed_dict={
+                obs_t_float: [q_input]})[0]
+            action = np.argmax(q_values)
+
+        # take action
+        obs, reward, done, info = env.step(action)
+        replay_buffer.store_effect(idx, action, reward, done)
+
+        # store all state variables into replay buffer
+
+        last_obs = env.reset() if done else obs
 
         #####
 
@@ -247,6 +282,32 @@ def learn(env,
             # YOUR CODE HERE
 
             #####
+            obs_batch, act_batch, rew_batch, next_obs_batch, done_mask = replay_buffer.sample(
+                batch_size)
+
+            if not model_initialized:
+                initialize_interdependent_variables(session, tf.global_variables(), {
+                    obs_t_ph: obs_batch,
+                    obs_tp1_ph: next_obs_batch
+                })
+                model_initialized = True
+
+            session.run(train_fn, feed_dict={
+                obs_t_ph: obs_batch,
+                act_t_ph: act_batch,
+                rew_t_ph: rew_batch,
+                obs_tp1_ph: next_obs_batch,
+                done_mask_ph: done_mask,
+                learning_rate: optimizer_spec.lr_schedule.value(t)
+            })
+            num_param_updates += 1
+
+            if num_param_updates % target_update_freq == 0:
+                session.run(update_target_fn)
+                num_param_updates = 0
+
+                import datetime
+                print('[iter %d]learning at ' % t, datetime.datetime.now())
 
         ### 4. Log progress
         episode_rewards = get_wrapper_by_name(env, "Monitor").get_episode_rewards()
